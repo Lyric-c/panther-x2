@@ -1,0 +1,98 @@
+name: Build Kernel
+
+on:
+  workflow_dispatch:
+    inputs:
+      BRANCH:
+        description: '内核分支'
+        default: 'vendor'
+        required: true
+        type: choice
+        options:
+          - 'vendor'
+          - 'current'
+          - 'edge'
+
+env:
+  TZ: Asia/Shanghai
+  BOARD: panther-x2
+
+jobs:
+  Build-Kernel:
+    name: Build Kernel [ panther-x2 ${{ inputs.BRANCH }} ]
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Free disk space
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/hostedtoolcache 2>/dev/null || true
+          sudo apt-get -y purge azure-cli ghc* zulu* llvm* firefox google* dotnet* openjdk* mysql* php* mongodb* moby* snapd* 2>/dev/null || true
+          sudo apt-get -qq autoremove --purge
+          sudo apt-get -qq clean
+          df -h /
+
+      - name: Download Armbian build framework
+        run: |
+          git clone -q --single-branch --depth=1 --branch=main \
+            https://github.com/armbian/build.git build
+          echo "Armbian build cloned OK"
+
+      - name: Apply userpatches
+        run: |
+          cp -rv ${GITHUB_WORKSPACE}/userpatches/* build/userpatches/
+          echo "Userpatches applied OK"
+
+      - name: Compile Kernel [ panther-x2 ${{ inputs.BRANCH }} ]
+        working-directory: build
+        run: |
+          ./compile.sh kernel \
+            BOARD=${BOARD} \
+            BRANCH=${{ inputs.BRANCH }} \
+            PREFER_DOCKER=no \
+            DEB_COMPRESS=xz \
+            SHARE_LOG=yes
+
+      - name: Prepare Kernel Metadata
+        working-directory: build/output/debs
+        run: |
+          Kernel_File=$(find . -maxdepth 1 -type f -name 'linux-image-*.deb' -printf '%f\n' | head -n 1)
+          if [ -n "${Kernel_File}" ]; then
+            echo "Kernel_File: ${Kernel_File}"
+            KERNEL_VERSION=$(echo "${Kernel_File}" | cut -d '_' -f 5 | cut -d '-' -f 1)
+            [[ ! "${KERNEL_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] && KERNEL_VERSION="${KERNEL_VERSION}.0"
+            echo "KERNEL_VERSION=${KERNEL_VERSION}" >> "${GITHUB_ENV}"
+            LINUX_FAMILY=$(echo "${Kernel_File}" | cut -d '_' -f 1 | awk -F '-' '{print $NF}')
+            echo "LINUX_FAMILY=${LINUX_FAMILY}" >> "${GITHUB_ENV}"
+            echo "Kernel: ${KERNEL_VERSION} (${LINUX_FAMILY})"
+          else
+            echo "No kernel deb found!"
+            ls -la
+            exit 1
+          fi
+          shopt -s nullglob
+          matching_files_array=(linux-dtb*.deb linux-headers*.deb linux-image*.deb linux-libc*.deb)
+          shopt -u nullglob
+          if [ ${#matching_files_array[@]} -gt 0 ]; then
+            tar -czf "../kernel-${KERNEL_VERSION}-${LINUX_FAMILY}.tar.gz" "${matching_files_array[@]}"
+            echo "Packed: kernel-${KERNEL_VERSION}-${LINUX_FAMILY}.tar.gz"
+          else
+            echo "No matching files found."
+            exit 1
+          fi
+
+      - name: Upload Kernel to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "Kernel-${{ env.LINUX_FAMILY }}"
+          name: "Kernel ${{ env.LINUX_FAMILY }}"
+          files: build/output/kernel-${{ env.KERNEL_VERSION }}-${{ env.LINUX_FAMILY }}.tar.gz
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

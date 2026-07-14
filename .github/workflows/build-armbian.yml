@@ -1,0 +1,109 @@
+name: Build Armbian
+
+on:
+  workflow_dispatch:
+    inputs:
+      BRANCH:
+        description: '内核分支'
+        default: 'vendor'
+        required: true
+        type: choice
+        options:
+          - 'vendor'
+          - 'current'
+          - 'edge'
+      RELEASE:
+        description: '系统发行版'
+        default: 'trixie'
+        required: true
+        type: choice
+        options:
+          - 'trixie'
+          - 'bookworm'
+          - 'noble'
+          - 'jammy'
+      BUILD_MINIMAL:
+        description: '最小化系统'
+        default: 'yes'
+        type: choice
+        options:
+          - 'yes'
+          - 'no'
+      BUILD_DESKTOP:
+        description: '包含桌面环境'
+        default: 'no'
+        type: choice
+        options:
+          - 'yes'
+          - 'no'
+
+env:
+  TZ: Asia/Shanghai
+  BOARD: panther-x2
+
+jobs:
+  Build-Armbian:
+    name: Build [ panther-x2 ${{ inputs.BRANCH }} ${{ inputs.RELEASE }} ]
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Free disk space
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/hostedtoolcache 2>/dev/null || true
+          sudo apt-get -y purge azure-cli ghc* zulu* llvm* firefox google* dotnet* openjdk* mysql* php* mongodb* moby* snapd* 2>/dev/null || true
+          sudo apt-get -qq autoremove --purge
+          sudo apt-get -qq clean
+          df -h /
+
+      - name: Download Armbian build framework
+        run: |
+          git clone -q --single-branch --depth=1 --branch=main \
+            https://github.com/armbian/build.git build
+          echo "Armbian build cloned OK"
+
+      - name: Apply userpatches
+        run: |
+          cp -rv ${GITHUB_WORKSPACE}/userpatches/* build/userpatches/
+          echo "Userpatches applied OK"
+
+      - name: Compile Armbian [ panther-x2 ${{ inputs.BRANCH }} ${{ inputs.RELEASE }} ]
+        working-directory: build
+        run: |
+          ./compile.sh build \
+            BOARD=${BOARD} \
+            BRANCH=${{ inputs.BRANCH }} \
+            RELEASE=${{ inputs.RELEASE }} \
+            BUILD_MINIMAL=${{ inputs.BUILD_MINIMAL }} \
+            BUILD_DESKTOP=${{ inputs.BUILD_DESKTOP }} \
+            KERNEL_CONFIGURE=no \
+            SHARE_LOG=yes \
+            COMPRESS_OUTPUTIMAGE=xz \
+            DEB_COMPRESS=xz
+
+      - name: Prepare Image Metadata
+        working-directory: build/output/images
+        run: |
+          Image_File=$(find . -maxdepth 1 -type f -name 'Armbian*.img.xz' -printf '%f\n' | head -n 1)
+          [ -z "${Image_File}" ] && { echo "No image files found."; ls -la; exit 1; }
+          echo "Image_File: ${Image_File}"
+          VERSION=$(echo "${Image_File}" | cut -d '_' -f 2 | cut -d '-' -f 1)
+          echo "VERSION=${VERSION}" >> "${GITHUB_ENV}"
+          echo "VERSION: ${VERSION}"
+          echo "CURRENT_YEAR_MONTH=$(date +'%Y.%m')" >> "${GITHUB_ENV}"
+
+      - name: Upload Image to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "Armbian-${{ inputs.RELEASE }}-${{ env.CURRENT_YEAR_MONTH }}"
+          name: "Armbian ${{ inputs.RELEASE }} ${{ env.CURRENT_YEAR_MONTH }}"
+          files: build/output/images/Armbian*.img.xz
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
