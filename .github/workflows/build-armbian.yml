@@ -70,6 +70,7 @@ jobs:
 
       - name: Apply userpatches
         run: |
+          mkdir -p build/userpatches
           cp -rv ${GITHUB_WORKSPACE}/userpatches/* build/userpatches/
           echo "Userpatches applied OK"
 
