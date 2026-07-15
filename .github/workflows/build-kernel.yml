@@ -97,8 +97,13 @@ jobs:
           mkdir -p "${WORK_DIR}"
           cd "${EXTRACT_DIR}"
 
-          # boot: vmlinuz, uInitrd, config, System.map from /boot
+          # boot: rename files to use KERNEL_NAME, then tar (rebuild matches *{kernel_name})
           if [ -d boot ]; then
+            for f in boot/vmlinuz-* boot/config-* boot/System.map-* boot/uInitrd-*; do
+              [ -f "$f" ] || continue
+              prefix="${f%%-*}"                           # boot/vmlinuz, boot/config, etc.
+              mv "$f" "${prefix}-${KERNEL_NAME}"
+            done
             tar -czf "${GITHUB_WORKSPACE}/build/output/ophub-kernel/boot-${KERNEL_NAME}.tar.gz" \
               -C boot $(ls boot/ 2>/dev/null)
             echo "Created: boot-${KERNEL_NAME}.tar.gz"
