@@ -135,10 +135,14 @@ jobs:
           sha256sum boot-*.tar.gz dtb-*.tar.gz modules-*.tar.gz header-*.tar.gz > sha256sums
           cat sha256sums
 
-          # --- 6. Package everything into {KERNEL_VERSION}.tar.gz ---
-          tar -czf "../${KERNEL_VERSION}.tar.gz" *
+          # --- 6. Package with versioned subdirectory (rebuild expects {ver}/boot-*.tar.gz etc.) ---
+          mkdir -p "../${KERNEL_VERSION}"
+          mv * "../${KERNEL_VERSION}/"
+          cd ..
+          tar -czf "${KERNEL_VERSION}.tar.gz" "${KERNEL_VERSION}"
+          rm -rf "${KERNEL_VERSION}"
           echo "Packed: ${KERNEL_VERSION}.tar.gz"
-          ls -la "../${KERNEL_VERSION}.tar.gz"
+          ls -la "${KERNEL_VERSION}.tar.gz"
 
           # --- 7. Export env vars for subsequent steps ---
           echo "KERNEL_VERSION=${KERNEL_VERSION}" >> "${GITHUB_ENV}"
