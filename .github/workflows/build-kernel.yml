@@ -60,6 +60,9 @@ jobs:
             DEB_COMPRESS=xz \
             SHARE_LOG=yes
 
+      - name: Install initrd tools
+        run: sudo apt-get -qq update && sudo apt-get -qq install -y initramfs-tools u-boot-tools
+
       - name: Prepare Kernel (ophub format)
         working-directory: build/output/debs
         run: |
@@ -99,6 +102,30 @@ jobs:
 
           # boot: rename files to use KERNEL_NAME, then tar (rebuild matches *{kernel_name})
           if [ -d boot ]; then
+            # --- 4a. Generate uInitrd if missing (kernel-only build doesn't produce one) ---
+            if ! ls boot/uInitrd-* boot/initrd.img-* >/dev/null 2>&1; then
+              echo "No uInitrd found, generating minimal uInitrd..."
+              tmpd=$(mktemp -d)
+              mkdir -p "${tmpd}"/{bin,dev,proc,sys}
+              cat > "${tmpd}/init" << 'INITEOF'
+#!/bin/sh
+mount -t proc proc /proc
+mount -t sysfs sys /sys
+mount -t devtmpfs dev /dev
+exec /sbin/init
+INITEOF
+              chmod +x "${tmpd}/init"
+              (cd "${tmpd}" && find . | cpio -o -H newc 2>/dev/null | gzip > /tmp/initrd.img)
+              rm -rf "${tmpd}"
+              if command -v mkimage >/dev/null 2>&1; then
+                mkimage -A arm64 -T ramdisk -C gzip -d /tmp/initrd.img "boot/uInitrd-${KERNEL_NAME}" 2>/dev/null
+              else
+                cp /tmp/initrd.img "boot/uInitrd-${KERNEL_NAME}"
+              fi
+              echo "Created: uInitrd-${KERNEL_NAME}"
+              rm -f /tmp/initrd.img
+            fi
+            # --- 4b. Rename boot files to KERNEL_NAME ---
             for f in boot/vmlinuz-* boot/config-* boot/System.map-* boot/uInitrd-*; do
               [ -f "$f" ] || continue
               prefix="${f%%-*}"                           # boot/vmlinuz, boot/config, etc.
@@ -109,12 +136,21 @@ jobs:
             echo "Created: boot-${KERNEL_NAME}.tar.gz"
           fi
 
-          # dtb: find rockchip dtb dir, tar files at root (rebuild extracts to /boot/dtb/rockchip/)
-          DTB_SRC=$(find boot usr/lib -type d -name "rockchip" 2>/dev/null | head -1)
-          if [ -n "${DTB_SRC}" ]; then
+          # dtb: find dtb files, tar them at root (rebuild extracts to /boot/dtb/rockchip/)
+          # Armian deb may place dtb under boot/dtb-*/rockchip/ or usr/lib/linux-image-*/rockchip/
+          DTB_SRC=""
+          for candidate in boot/dtb-*/rockchip usr/lib/linux-image-*/rockchip; do
+            [ -d "${candidate}" ] && { DTB_SRC="${candidate}"; break; }
+          done
+          if [ -z "${DTB_SRC}" ]; then
+            # Fallback: find any rockchip directory
+            DTB_SRC=$(find boot usr -type d -name "rockchip" 2>/dev/null | head -1)
+          fi
+          echo "DTB source: ${DTB_SRC:-NOT FOUND}"
+          if [ -n "${DTB_SRC}" ] && [ -d "${DTB_SRC}" ]; then
             tar -czf "${GITHUB_WORKSPACE}/build/output/ophub-kernel/dtb-rockchip-${KERNEL_NAME}.tar.gz" \
               -C "${DTB_SRC}" .
-            echo "Created: dtb-rockchip-${KERNEL_NAME}.tar.gz (from ${DTB_SRC})"
+            echo "Created: dtb-rockchip-${KERNEL_NAME}.tar.gz ($(tar -tzf ${GITHUB_WORKSPACE}/build/output/ophub-kernel/dtb-rockchip-${KERNEL_NAME}.tar.gz | wc -l) dtb files)"
           else
             echo "WARNING: No DTB directory found, creating empty dtb tarball"
             tar -czf "${GITHUB_WORKSPACE}/build/output/ophub-kernel/dtb-rockchip-${KERNEL_NAME}.tar.gz" \
