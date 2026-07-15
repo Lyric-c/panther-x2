@@ -83,6 +83,7 @@ jobs:
             RELEASE=${{ inputs.RELEASE }} \
             BUILD_MINIMAL=${{ inputs.BUILD_MINIMAL }} \
             BUILD_DESKTOP=${{ inputs.BUILD_DESKTOP }} \
+            PREFER_DOCKER=yes \
             KERNEL_CONFIGURE=no \
             SHARE_LOG=yes \
             COMPRESS_OUTPUTIMAGE=xz \
@@ -100,7 +101,7 @@ jobs:
           echo "CURRENT_YEAR_MONTH=$(date +'%Y.%m')" >> "${GITHUB_ENV}"
 
       - name: Upload Image to Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: "Armbian-${{ inputs.RELEASE }}-${{ env.CURRENT_YEAR_MONTH }}"
           name: "Armbian ${{ inputs.RELEASE }} ${{ env.CURRENT_YEAR_MONTH }}"

@@ -56,7 +56,7 @@ jobs:
           ./compile.sh kernel \
             BOARD=${BOARD} \
             BRANCH=${{ inputs.BRANCH }} \
-            PREFER_DOCKER=no \
+            PREFER_DOCKER=yes \
             DEB_COMPRESS=xz \
             SHARE_LOG=yes
 
@@ -89,7 +89,7 @@ jobs:
           fi
 
       - name: Upload Kernel to Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: "Kernel-${{ env.LINUX_FAMILY }}"
           name: "Kernel ${{ env.LINUX_FAMILY }}"
