@@ -81,19 +81,30 @@ jobs:
           matching_files_array=(linux-dtb*.deb linux-headers*.deb linux-image*.deb linux-libc*.deb)
           shopt -u nullglob
           if [ ${#matching_files_array[@]} -gt 0 ]; then
-            tar -czf "../kernel-${KERNEL_VERSION}-${LINUX_FAMILY}.tar.gz" "${matching_files_array[@]}"
-            echo "Packed: kernel-${KERNEL_VERSION}-${LINUX_FAMILY}.tar.gz"
+            tar -czf "../deb-${KERNEL_VERSION}.tar.gz" "${matching_files_array[@]}"
+            echo "Packed: deb-${KERNEL_VERSION}.tar.gz"
           else
             echo "No matching files found."
             exit 1
           fi
 
+      - name: Set kernel release tag
+        run: |
+          case "${{ inputs.BRANCH }}" in
+            vendor)  KERNEL_TAG="kernel_rk35xx" ;;
+            current) KERNEL_TAG="kernel_stable" ;;
+            edge)    KERNEL_TAG="kernel_stable" ;;
+            *)       KERNEL_TAG="kernel_stable" ;;
+          esac
+          echo "KERNEL_TAG=${KERNEL_TAG}" >> "${GITHUB_ENV}"
+          echo "Kernel Release Tag: ${KERNEL_TAG}"
+
       - name: Upload Kernel to Release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: "Kernel-${{ env.LINUX_FAMILY }}"
-          name: "Kernel ${{ env.LINUX_FAMILY }}"
-          files: build/output/kernel-${{ env.KERNEL_VERSION }}-${{ env.LINUX_FAMILY }}.tar.gz
+          tag_name: "${{ env.KERNEL_TAG }}"
+          name: "${{ env.KERNEL_TAG }}"
+          files: build/output/deb-${{ env.KERNEL_VERSION }}.tar.gz
           fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
