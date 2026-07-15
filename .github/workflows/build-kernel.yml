@@ -60,33 +60,89 @@ jobs:
             DEB_COMPRESS=xz \
             SHARE_LOG=yes
 
-      - name: Prepare Kernel Metadata
+      - name: Prepare Kernel (ophub format)
         working-directory: build/output/debs
         run: |
+          # --- 1. Extract kernel version from linux-image deb ---
           Kernel_File=$(find . -maxdepth 1 -type f -name 'linux-image-*.deb' -printf '%f\n' | head -n 1)
-          if [ -n "${Kernel_File}" ]; then
-            echo "Kernel_File: ${Kernel_File}"
-            KERNEL_VERSION=$(echo "${Kernel_File}" | cut -d '_' -f 5 | cut -d '-' -f 1)
-            [[ ! "${KERNEL_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] && KERNEL_VERSION="${KERNEL_VERSION}.0"
-            echo "KERNEL_VERSION=${KERNEL_VERSION}" >> "${GITHUB_ENV}"
-            LINUX_FAMILY=$(echo "${Kernel_File}" | cut -d '_' -f 1 | awk -F '-' '{print $NF}')
-            echo "LINUX_FAMILY=${LINUX_FAMILY}" >> "${GITHUB_ENV}"
-            echo "Kernel: ${KERNEL_VERSION} (${LINUX_FAMILY})"
-          else
-            echo "No kernel deb found!"
-            ls -la
-            exit 1
+          if [ -z "${Kernel_File}" ]; then
+            echo "No kernel deb found!"; ls -la; exit 1
           fi
-          shopt -s nullglob
-          matching_files_array=(linux-dtb*.deb linux-headers*.deb linux-image*.deb linux-libc*.deb)
-          shopt -u nullglob
-          if [ ${#matching_files_array[@]} -gt 0 ]; then
-            tar -czf "../deb-${KERNEL_VERSION}.tar.gz" "${matching_files_array[@]}"
-            echo "Packed: deb-${KERNEL_VERSION}.tar.gz"
-          else
-            echo "No matching files found."
-            exit 1
+          KERNEL_VERSION=$(echo "${Kernel_File}" | cut -d '_' -f 5 | cut -d '-' -f 1)
+          [[ ! "${KERNEL_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] && KERNEL_VERSION="${KERNEL_VERSION}.0"
+          echo "Kernel version: ${KERNEL_VERSION}"
+
+          # --- 2. Determine kernel signature ---
+          case "${{ inputs.BRANCH }}" in
+            vendor)  KERNEL_SIG="rk35xx" ;;
+            current) KERNEL_SIG="stable" ;;
+            edge)    KERNEL_SIG="stable" ;;
+            *)       KERNEL_SIG="stable" ;;
+          esac
+          KERNEL_NAME="${KERNEL_VERSION}-${KERNEL_SIG}"
+          echo "Kernel name: ${KERNEL_NAME}"
+
+          # --- 3. Extract all debs into a temp directory ---
+          EXTRACT_DIR="/tmp/kernel-extract"
+          rm -rf "${EXTRACT_DIR}"
+          mkdir -p "${EXTRACT_DIR}"
+          for deb in linux-*.deb; do
+            echo "Extracting: ${deb}"
+            dpkg -x "${deb}" "${EXTRACT_DIR}/"
+          done
+
+          # --- 4. Create ophub-format kernel tarballs ---
+          WORK_DIR="../ophub-kernel"
+          rm -rf "${WORK_DIR}"
+          mkdir -p "${WORK_DIR}"
+          cd "${EXTRACT_DIR}"
+
+          # boot: vmlinuz, uInitrd, config, System.map from /boot
+          if [ -d boot ]; then
+            tar -czf "${GITHUB_WORKSPACE}/build/output/ophub-kernel/boot-${KERNEL_NAME}.tar.gz" \
+              -C boot $(ls boot/ 2>/dev/null)
+            echo "Created: boot-${KERNEL_NAME}.tar.gz"
           fi
+
+          # dtb: find rockchip dtb dir, tar files at root (rebuild extracts to /boot/dtb/rockchip/)
+          DTB_SRC=$(find boot usr/lib -type d -name "rockchip" 2>/dev/null | head -1)
+          if [ -n "${DTB_SRC}" ]; then
+            tar -czf "${GITHUB_WORKSPACE}/build/output/ophub-kernel/dtb-rockchip-${KERNEL_NAME}.tar.gz" \
+              -C "${DTB_SRC}" .
+            echo "Created: dtb-rockchip-${KERNEL_NAME}.tar.gz (from ${DTB_SRC})"
+          else
+            echo "WARNING: No DTB directory found, creating empty dtb tarball"
+            tar -czf "${GITHUB_WORKSPACE}/build/output/ophub-kernel/dtb-rockchip-${KERNEL_NAME}.tar.gz" \
+              --files-from /dev/null
+          fi
+
+          # modules: /lib/modules/{version}/
+          if [ -d lib/modules ]; then
+            tar -czf "${GITHUB_WORKSPACE}/build/output/ophub-kernel/modules-${KERNEL_NAME}.tar.gz" \
+              -C lib/modules .
+            echo "Created: modules-${KERNEL_NAME}.tar.gz"
+          fi
+
+          # header: /usr/src/linux-headers-{version}/
+          if [ -d usr/src ]; then
+            tar -czf "${GITHUB_WORKSPACE}/build/output/ophub-kernel/header-${KERNEL_NAME}.tar.gz" \
+              -C usr/src .
+            echo "Created: header-${KERNEL_NAME}.tar.gz"
+          fi
+
+          # --- 5. Create sha256sums ---
+          cd "${GITHUB_WORKSPACE}/build/output/ophub-kernel"
+          sha256sum boot-*.tar.gz dtb-*.tar.gz modules-*.tar.gz header-*.tar.gz > sha256sums
+          cat sha256sums
+
+          # --- 6. Package everything into {KERNEL_VERSION}.tar.gz ---
+          tar -czf "../${KERNEL_VERSION}.tar.gz" *
+          echo "Packed: ${KERNEL_VERSION}.tar.gz"
+          ls -la "../${KERNEL_VERSION}.tar.gz"
+
+          # --- 7. Export env vars for subsequent steps ---
+          echo "KERNEL_VERSION=${KERNEL_VERSION}" >> "${GITHUB_ENV}"
+          echo "KERNEL_NAME=${KERNEL_NAME}" >> "${GITHUB_ENV}"
 
       - name: Set kernel release tag
         run: |
@@ -104,7 +160,7 @@ jobs:
         with:
           tag_name: "${{ env.KERNEL_TAG }}"
           name: "${{ env.KERNEL_TAG }}"
-          files: build/output/deb-${{ env.KERNEL_VERSION }}.tar.gz
+          files: build/output/${{ env.KERNEL_VERSION }}.tar.gz
           fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
