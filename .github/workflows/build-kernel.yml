@@ -107,13 +107,11 @@ jobs:
               echo "No uInitrd found, generating minimal uInitrd..."
               tmpd=$(mktemp -d)
               mkdir -p "${tmpd}"/{bin,dev,proc,sys}
-              cat > "${tmpd}/init" << 'INITEOF'
-#!/bin/sh
-mount -t proc proc /proc
-mount -t sysfs sys /sys
-mount -t devtmpfs dev /dev
-exec /sbin/init
-INITEOF
+              echo '#!/bin/sh'           > "${tmpd}/init"
+              echo 'mount -t proc proc /proc'   >> "${tmpd}/init"
+              echo 'mount -t sysfs sys /sys'    >> "${tmpd}/init"
+              echo 'mount -t devtmpfs dev /dev' >> "${tmpd}/init"
+              echo 'exec /sbin/init'            >> "${tmpd}/init"
               chmod +x "${tmpd}/init"
               (cd "${tmpd}" && find . | cpio -o -H newc 2>/dev/null | gzip > /tmp/initrd.img)
               rm -rf "${tmpd}"
