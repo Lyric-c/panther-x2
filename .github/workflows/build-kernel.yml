@@ -127,7 +127,8 @@ jobs:
             for f in boot/vmlinuz-* boot/config-* boot/System.map-* boot/uInitrd-*; do
               [ -f "$f" ] || continue
               prefix="${f%%-*}"                           # boot/vmlinuz, boot/config, etc.
-              mv "$f" "${prefix}-${KERNEL_NAME}"
+              newname="${prefix}-${KERNEL_NAME}"
+              [ "$f" != "${newname}" ] && mv "$f" "${newname}"
             done
             tar -czf "${GITHUB_WORKSPACE}/build/output/ophub-kernel/boot-${KERNEL_NAME}.tar.gz" \
               -C boot $(ls boot/ 2>/dev/null)
