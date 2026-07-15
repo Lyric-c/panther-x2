@@ -121,17 +121,21 @@ jobs:
               --files-from /dev/null
           fi
 
-          # modules: /lib/modules/{version}/
+          # modules: rename dir to KERNEL_NAME, then tar (rebuild expects /lib/modules/{kernel_name}/)
           if [ -d lib/modules ]; then
+            old_mod_dir=$(ls -d lib/modules/*/ 2>/dev/null | head -1)
+            [ -n "${old_mod_dir}" ] && mv "${old_mod_dir}" "lib/modules/${KERNEL_NAME}"
             tar -czf "${GITHUB_WORKSPACE}/build/output/ophub-kernel/modules-${KERNEL_NAME}.tar.gz" \
               -C lib/modules .
             echo "Created: modules-${KERNEL_NAME}.tar.gz"
           fi
 
-          # header: /usr/src/linux-headers-{version}/
+          # header: rename dir to linux-headers-{KERNEL_NAME}, tar contents directly (no nested dir)
           if [ -d usr/src ]; then
+            old_hdr_dir=$(ls -d usr/src/linux-headers-*/ 2>/dev/null | head -1)
+            [ -n "${old_hdr_dir}" ] && mv "${old_hdr_dir}" "usr/src/linux-headers-${KERNEL_NAME}"
             tar -czf "${GITHUB_WORKSPACE}/build/output/ophub-kernel/header-${KERNEL_NAME}.tar.gz" \
-              -C usr/src .
+              -C "usr/src/linux-headers-${KERNEL_NAME}" .
             echo "Created: header-${KERNEL_NAME}.tar.gz"
           fi
 
