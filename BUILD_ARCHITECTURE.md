@@ -310,6 +310,55 @@ tar -tzf 6.1.115/boot-6.1.115-rk35xx.tar.gz
 
 ---
 
+## 已解决的关键问题
+
+### 启动问题排查历程
+
+| # | 症状 | 根因 | 修复 |
+|---|---|---|---|
+| 1 | 电源灯不亮，完全无法启动 | boot 分区为 ext4，Panther X2 的 Radxa U-Boot 只支持 FAT32 | `different-files/panther-x2/rootfs/etc/armbian-board-release.conf` 写入 `bootfs_type="fat32"` |
+| 2 | 电源灯不亮（修复 FAT32 后仍不行） | 内核 tarball 缺少 uInitrd 且 `ln -sf` 在 FAT32 上失败 | build-kernel.yml 用 `cp` 生成 Image/uInitrd 实文件副本 |
+| 3 | 电源灯亮、蓝牙闪一下灭，无法获取 DHCP | minimal initramfs 的 `/init` 只挂 proc/sys/dev 后 `exec /sbin/init`，根文件系统未挂载导致 kernel panic | 改为 `sudo cp` 模块到 `/lib/modules` → `depmod` → `mkinitramfs` 生成含 rootfs mount + switch_root 的完整 initramfs（~21MB） |
+| 4 | 系统启动成功但 Docker 无法运行 | vendor 内核默认未编译 netfilter 模块 | 新增 `999-docker-netfilter.config` 内核配置补丁 |
+
+### 镜像构建/打包问题
+
+| # | 症状 | 根因 | 修复 |
+|---|---|---|---|
+| 5 | rebuild 报告 `Missing kernel files for [6.1.115]` | 内核 tarball 内部文件平铺，缺少 `${KERNEL_VERSION}/` 顶层目录 | tar 前 `mkdir` + `mv` 文件到版本号子目录 |
+| 6 | rebuild 报告 `/boot files is missing` | boot 文件名带 armbian 构建哈希 (S1c43-D398d-...)，rebuild 只认 `*{KERNEL_NAME}` 模式 | boot 文件全部 rename 为 `{prefix}-{KERNEL_NAME}` |
+| 7 | rebuild 报告 `/usr/lib/modules kernel folder is missing` | modules 目录名带 armbian 哈希，rebuild 期望 `${KERNEL_NAME}` | modules 目录 rename 为 `${KERNEL_NAME}` |
+| 8 | rebuild 下载 `kernel_rk35xx/6.18.y.tar.gz` 404 | model_database.conf KERNEL_TAGS 双标签导致 rebuild 对两个 tag 都下载内核 | workflow 中 `sed` 把 Panther X2 的 KERNEL_TAGS 临时替换为单标签 |
+| 9 | base image 下载了 allwinner 镜像导致 rebuild `find_armbian` 失败 | ophub Release 中同时存在 `-board_` 和 `-trunk_` 两类镜像 | jq 过滤加 `select(.name \| contains("-trunk_"))` |
+| 10 | rebuild 日志大量 `Cannot change ownership to uid 1001` | tar 保留原始 UID，rebuild 以 root 解压时 chown 失败 | 所有 `tar -czf` 加 `--owner=0 --group=0` |
+
+---
+
+## 自定义内核模块
+
+### 网络 / Docker 模块 (`999-docker-netfilter.config`)
+
+通过 `userpatches/kernel/rk35xx-vendor-6.1/999-docker-netfilter.config` 配置，armbian 构建框架自动 merge 到内核 `.config`。
+
+| 分类 | 模块 | 模式 | 用途 |
+|---|---|---|---|
+| **nftables** | NF_TABLES, NFT_COUNTER/CT/COMPAT/LOG/LIMIT/MASQ/NAT/REJECT/SOCKET/TPROXY/FIB + 子项 | `=y` | nftables 防火墙框架 |
+| **iptables** | IP_NF_IPTABLES/FILTER/NAT/MASQ/REDIRECT/MANGLE/RAW + IPv6 | `=y` | iptables 传统框架（与 nftables 可共存） |
+| **conntrack** | NF_CONNTRACK + NAT helpers (FTP/SIP/TFTP) | `=y` | 连接跟踪，NAT 转发必需 |
+| **bridge netfilter** | BRIDGE_NETFILTER, XT_MATCH_ADDRTYPE/CONNTRACK/IPVS | `=y` | Docker bridge 网络的包过滤 |
+| **TPROXY** | XT_TARGET_TPROXY, XT_MATCH_SOCKET | `=y` | 透明代理（如 clash/v2ray） |
+| **高级路由** | IP_ADVANCED_ROUTER, IP_MULTIPLE_TABLES, IP_ROUTE_MULTIPATH | `=y` | 策略路由、多路由表 |
+| **Docker 基础** | OVERLAY_FS, VETH, BRIDGE | `=y` | Docker 镜像分层存储 + 虚拟网卡 + 网桥 |
+| **单臂路由** | BRIDGE_VLAN_FILTERING | `=y` | 桥接 VLAN 过滤（`bridge vlan add`） |
+| **通用网络** | MACVLAN, IPVLAN, VLAN_8021Q, IP_TUNNEL, VXLAN | `=m` | 按需加载：`modprobe macvlan` 等 |
+| **BBR** | TCP_CONG_BBR | `=m` | TCP BBR 拥塞控制：`modprobe tcp_bbr` |
+| **WireGuard** | WIREGUARD | `=m` | VPN：`modprobe wireguard` |
+| **eBPF** | BPF, BPF_SYSCALL, BPF_JIT, CGROUP_BPF | `=y` | eBPF 程序运行环境（Cilium/可观测性等） |
+
+> **`=y` vs `=m`**：`=y` 内建于内核镜像，始终可用无需手动加载；`=m` 编译为独立 .ko 模块，内核按需自动加载或 `modprobe` 手动加载。Docker 依赖的 netfilter 模块建议 `=y` 避免容器启动时加载失败。
+
+---
+
 ## 日常维护
 
 ### 触发内核更新
