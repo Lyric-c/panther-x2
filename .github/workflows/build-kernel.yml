@@ -130,8 +130,9 @@ jobs:
               newname="${prefix}-${KERNEL_NAME}"
               [ "$f" != "${newname}" ] && mv "$f" "${newname}"
             done
+            rm -rf boot/dtb-* 2>/dev/null  # DTB provided via dtb-rockchip-*.tar.gz, not needed in boot
             tar -czf "${GITHUB_WORKSPACE}/build/output/ophub-kernel/boot-${KERNEL_NAME}.tar.gz" \
-              -C boot $(ls boot/ 2>/dev/null)
+              --owner=0 --group=0 -C boot $(ls boot/ 2>/dev/null)
             echo "Created: boot-${KERNEL_NAME}.tar.gz"
           fi
 
@@ -148,12 +149,12 @@ jobs:
           echo "DTB source: ${DTB_SRC:-NOT FOUND}"
           if [ -n "${DTB_SRC}" ] && [ -d "${DTB_SRC}" ]; then
             tar -czf "${GITHUB_WORKSPACE}/build/output/ophub-kernel/dtb-rockchip-${KERNEL_NAME}.tar.gz" \
-              -C "${DTB_SRC}" .
+              --owner=0 --group=0 -C "${DTB_SRC}" .
             echo "Created: dtb-rockchip-${KERNEL_NAME}.tar.gz ($(tar -tzf ${GITHUB_WORKSPACE}/build/output/ophub-kernel/dtb-rockchip-${KERNEL_NAME}.tar.gz | wc -l) dtb files)"
           else
             echo "WARNING: No DTB directory found, creating empty dtb tarball"
             tar -czf "${GITHUB_WORKSPACE}/build/output/ophub-kernel/dtb-rockchip-${KERNEL_NAME}.tar.gz" \
-              --files-from /dev/null
+              --owner=0 --group=0 --files-from /dev/null
           fi
 
           # modules: rename dir to KERNEL_NAME, then tar (rebuild expects /lib/modules/{kernel_name}/)
@@ -161,7 +162,7 @@ jobs:
             old_mod_dir=$(ls -d lib/modules/*/ 2>/dev/null | head -1)
             [ -n "${old_mod_dir}" ] && mv "${old_mod_dir}" "lib/modules/${KERNEL_NAME}"
             tar -czf "${GITHUB_WORKSPACE}/build/output/ophub-kernel/modules-${KERNEL_NAME}.tar.gz" \
-              -C lib/modules .
+              --owner=0 --group=0 -C lib/modules .
             echo "Created: modules-${KERNEL_NAME}.tar.gz"
           fi
 
@@ -170,7 +171,7 @@ jobs:
             old_hdr_dir=$(ls -d usr/src/linux-headers-*/ 2>/dev/null | head -1)
             [ -n "${old_hdr_dir}" ] && mv "${old_hdr_dir}" "usr/src/linux-headers-${KERNEL_NAME}"
             tar -czf "${GITHUB_WORKSPACE}/build/output/ophub-kernel/header-${KERNEL_NAME}.tar.gz" \
-              -C "usr/src/linux-headers-${KERNEL_NAME}" .
+              --owner=0 --group=0 -C "usr/src/linux-headers-${KERNEL_NAME}" .
             echo "Created: header-${KERNEL_NAME}.tar.gz"
           fi
 
@@ -183,7 +184,7 @@ jobs:
           mkdir -p "../${KERNEL_VERSION}"
           mv * "../${KERNEL_VERSION}/"
           cd ..
-          tar -czf "${KERNEL_VERSION}.tar.gz" "${KERNEL_VERSION}"
+          tar -czf "${KERNEL_VERSION}.tar.gz" --owner=0 --group=0 "${KERNEL_VERSION}"
           rm -rf "${KERNEL_VERSION}"
           echo "Packed: ${KERNEL_VERSION}.tar.gz"
           ls -la "${KERNEL_VERSION}.tar.gz"
