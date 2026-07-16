@@ -131,6 +131,9 @@ jobs:
               [ "$f" != "${newname}" ] && mv "$f" "${newname}"
             done
             rm -rf boot/dtb-* 2>/dev/null  # DTB provided via dtb-rockchip-*.tar.gz, not needed in boot
+            # FAT32 boot doesn't support symlinks; provide Image/uInitrd as real file copies
+            cp boot/vmlinuz-${KERNEL_NAME} boot/Image 2>/dev/null || true
+            cp boot/uInitrd-${KERNEL_NAME} boot/uInitrd 2>/dev/null || true
             tar -czf "${GITHUB_WORKSPACE}/build/output/ophub-kernel/boot-${KERNEL_NAME}.tar.gz" \
               --owner=0 --group=0 -C boot $(ls boot/ 2>/dev/null)
             echo "Created: boot-${KERNEL_NAME}.tar.gz"
