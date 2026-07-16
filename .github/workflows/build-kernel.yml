@@ -123,7 +123,7 @@ jobs:
                     cp "/tmp/initrd.img-${KERNEL_NAME}" "boot/uInitrd-${KERNEL_NAME}"
                   fi
                   echo "Created: uInitrd-${KERNEL_NAME}"
-                  rm -f "/tmp/initrd.img-${KERNEL_NAME}"
+                  sudo rm -f "/tmp/initrd.img-${KERNEL_NAME}"
                 else
                   echo "WARNING: mkinitramfs failed, continuing without uInitrd"
                 fi
