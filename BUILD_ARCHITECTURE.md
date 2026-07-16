@@ -119,12 +119,19 @@ for deb in linux-*.deb; do dpkg -x "$deb" /tmp/kernel-extract/; done
 
 # 4. 逐组件重命名 + 打包
 
-# boot: 文件重命名 → vmlinuz-6.1.115-rk35xx 等
+# boot: 文件重命名 + 生成 uInitrd → vmlinuz-6.1.115-rk35xx 等
+# 如果 armbian kernel-only build 未生成 uInitrd，自动创建 minimal initramfs
+if ! ls boot/uInitrd-* >/dev/null 2>&1; then
+  # 用 cpio+gzip+mkimage 生成最小 uInitrd
+  mkimage -A arm64 -T ramdisk -C gzip -d /tmp/initrd.img boot/uInitrd-${KERNEL_NAME}
+fi
 for f in boot/vmlinuz-* boot/config-* boot/System.map-* boot/uInitrd-*; do
   prefix="${f%%-*}"                         # boot/vmlinuz
-  mv "$f" "${prefix}-${KERNEL_NAME}"        # boot/vmlinuz-6.1.115-rk35xx
+  newname="${prefix}-${KERNEL_NAME}"        # boot/vmlinuz-6.1.115-rk35xx
+  [ "$f" != "${newname}" ] && mv "$f" "${newname}"
 done
-tar -czf boot-${KERNEL_NAME}.tar.gz -C boot $(ls boot/)
+rm -rf boot/dtb-*   # DTB 由 dtb-rockchip-*.tar.gz 提供，此处冗余
+tar -czf boot-${KERNEL_NAME}.tar.gz --owner=0 --group=0 -C boot $(ls boot/)
 
 # dtb: 从 deb 中找到 rockchip/ 子目录
 DTB_SRC=$(find boot usr/lib -type d -name "rockchip" | head -1)
