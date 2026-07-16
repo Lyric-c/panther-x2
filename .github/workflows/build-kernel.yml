@@ -104,24 +104,32 @@ jobs:
           if [ -d boot ]; then
             # --- 4a. Generate uInitrd if missing (kernel-only build doesn't produce one) ---
             if ! ls boot/uInitrd-* boot/initrd.img-* >/dev/null 2>&1; then
-              echo "No uInitrd found, generating minimal uInitrd..."
-              tmpd=$(mktemp -d)
-              mkdir -p "${tmpd}"/{bin,dev,proc,sys}
-              echo '#!/bin/sh'           > "${tmpd}/init"
-              echo 'mount -t proc proc /proc'   >> "${tmpd}/init"
-              echo 'mount -t sysfs sys /sys'    >> "${tmpd}/init"
-              echo 'mount -t devtmpfs dev /dev' >> "${tmpd}/init"
-              echo 'exec /sbin/init'            >> "${tmpd}/init"
-              chmod +x "${tmpd}/init"
-              (cd "${tmpd}" && find . | cpio -o -H newc 2>/dev/null | gzip > /tmp/initrd.img)
-              rm -rf "${tmpd}"
-              if command -v mkimage >/dev/null 2>&1; then
-                mkimage -A arm64 -T ramdisk -C gzip -d /tmp/initrd.img "boot/uInitrd-${KERNEL_NAME}" 2>/dev/null
+              echo "No uInitrd found, generating via mkinitramfs..."
+              ACTUAL_VER=$(ls -d lib/modules/*/ 2>/dev/null | head -1 | xargs basename)
+              if [ -n "${ACTUAL_VER}" ] && [ -d "lib/modules/${ACTUAL_VER}" ]; then
+                echo "Installing modules for ${ACTUAL_VER}..."
+                sudo cp -a "lib/modules/${ACTUAL_VER}" "/lib/modules/${ACTUAL_VER}"
+                sudo depmod -a "${ACTUAL_VER}" 2>/dev/null || true
+                if command -v mkinitramfs >/dev/null 2>&1; then
+                  sudo mkinitramfs -o "/tmp/initrd.img-${KERNEL_NAME}" "${ACTUAL_VER}"
+                  echo "Initrd generated: $(ls -lh /tmp/initrd.img-${KERNEL_NAME} 2>/dev/null | awk '{print $5}')"
+                fi
+                sudo rm -rf "/lib/modules/${ACTUAL_VER}"
+                if [ -f "/tmp/initrd.img-${KERNEL_NAME}" ]; then
+                  if command -v mkimage >/dev/null 2>&1; then
+                    mkimage -A arm64 -T ramdisk -C gzip \
+                      -d "/tmp/initrd.img-${KERNEL_NAME}" "boot/uInitrd-${KERNEL_NAME}"
+                  else
+                    cp "/tmp/initrd.img-${KERNEL_NAME}" "boot/uInitrd-${KERNEL_NAME}"
+                  fi
+                  echo "Created: uInitrd-${KERNEL_NAME}"
+                  rm -f "/tmp/initrd.img-${KERNEL_NAME}"
+                else
+                  echo "WARNING: mkinitramfs failed, continuing without uInitrd"
+                fi
               else
-                cp /tmp/initrd.img "boot/uInitrd-${KERNEL_NAME}"
+                echo "WARNING: No modules directory found in lib/modules"
               fi
-              echo "Created: uInitrd-${KERNEL_NAME}"
-              rm -f /tmp/initrd.img
             fi
             # --- 4b. Rename boot files to KERNEL_NAME ---
             for f in boot/vmlinuz-* boot/config-* boot/System.map-* boot/uInitrd-*; do
