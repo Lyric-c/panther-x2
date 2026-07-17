@@ -174,12 +174,15 @@ jobs:
             echo "Created: modules-${KERNEL_NAME}.tar.gz"
           fi
 
-          # header: rename dir to linux-headers-{KERNEL_NAME}, tar contents directly (no nested dir)
+          # header: tar contents directly (skip rename if already matches KERNEL_NAME)
           if [ -d usr/src ]; then
             old_hdr_dir=$(ls -d usr/src/linux-headers-*/ 2>/dev/null | head -1)
-            [ -n "${old_hdr_dir}" ] && mv "${old_hdr_dir}" "usr/src/linux-headers-${KERNEL_NAME}"
+            new_hdr_dir="usr/src/linux-headers-${KERNEL_NAME}"
+            if [ -n "${old_hdr_dir}" ]; then
+              [ "${old_hdr_dir%/}" != "${new_hdr_dir}" ] && mv "${old_hdr_dir}" "${new_hdr_dir}"
+            fi
             tar -czf "${GITHUB_WORKSPACE}/build/output/ophub-kernel/header-${KERNEL_NAME}.tar.gz" \
-              --owner=0 --group=0 -C "usr/src/linux-headers-${KERNEL_NAME}" .
+              --owner=0 --group=0 -C "${new_hdr_dir}" .
             echo "Created: header-${KERNEL_NAME}.tar.gz"
           fi
 
