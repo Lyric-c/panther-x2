@@ -73,19 +73,9 @@ jobs:
           fi
           KERNEL_VERSION=$(echo "${Kernel_File}" | cut -d '_' -f 5 | cut -d '-' -f 1)
           [[ ! "${KERNEL_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] && KERNEL_VERSION="${KERNEL_VERSION}.0"
-          echo "Kernel version: ${KERNEL_VERSION}"
+          echo "Kernel version (for tarball name): ${KERNEL_VERSION}"
 
-          # --- 2. Determine kernel signature ---
-          case "${{ inputs.BRANCH }}" in
-            vendor)  KERNEL_SIG="rk35xx" ;;
-            current) KERNEL_SIG="stable" ;;
-            edge)    KERNEL_SIG="stable" ;;
-            *)       KERNEL_SIG="stable" ;;
-          esac
-          KERNEL_NAME="${KERNEL_VERSION}-${KERNEL_SIG}"
-          echo "Kernel name: ${KERNEL_NAME}"
-
-          # --- 3. Extract all debs into a temp directory ---
+          # --- 2. Extract all debs into a temp directory ---
           EXTRACT_DIR="/tmp/kernel-extract"
           rm -rf "${EXTRACT_DIR}"
           mkdir -p "${EXTRACT_DIR}"
@@ -93,6 +83,15 @@ jobs:
             echo "Extracting: ${deb}"
             dpkg -x "${deb}" "${EXTRACT_DIR}/"
           done
+
+          # --- 3. Get actual kernel name from modules dir (matches uname -r) ---
+          KERNEL_NAME=$(ls -d "${EXTRACT_DIR}/lib/modules/"*/ 2>/dev/null | head -1 | xargs basename)
+          if [ -z "${KERNEL_NAME}" ]; then
+            echo "ERROR: No modules directory found in extracted debs"
+            ls -la "${EXTRACT_DIR}/lib/modules/" 2>/dev/null || echo "lib/modules not found"
+            exit 1
+          fi
+          echo "Kernel name (matches uname -r): ${KERNEL_NAME}"
 
           # --- 4. Create ophub-format kernel tarballs ---
           WORK_DIR="../ophub-kernel"
