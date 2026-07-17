@@ -167,10 +167,8 @@ jobs:
               --owner=0 --group=0 --files-from /dev/null
           fi
 
-          # modules: rename dir to KERNEL_NAME, then tar (rebuild expects /lib/modules/{kernel_name}/)
+          # modules: tar directly (KERNEL_NAME matches directory name from uname -r)
           if [ -d lib/modules ]; then
-            old_mod_dir=$(ls -d lib/modules/*/ 2>/dev/null | head -1)
-            [ -n "${old_mod_dir}" ] && mv "${old_mod_dir}" "lib/modules/${KERNEL_NAME}"
             tar -czf "${GITHUB_WORKSPACE}/build/output/ophub-kernel/modules-${KERNEL_NAME}.tar.gz" \
               --owner=0 --group=0 -C lib/modules .
             echo "Created: modules-${KERNEL_NAME}.tar.gz"
